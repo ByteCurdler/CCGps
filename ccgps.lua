@@ -1,6 +1,12 @@
-term.clear()
+settings.load("waypoints.dat")
 
-marker = function(char, vec, fgcolor, snap)
+waypoints = settings.get("waypoints")
+
+if waypoints== nil then
+    waypoints = {}
+end
+
+normvec = function(vec, snap)
     if snap then
         normlen = math.max(math.abs(vec.x),
                            math.abs(vec.y))
@@ -8,13 +14,33 @@ marker = function(char, vec, fgcolor, snap)
         normlen = math.max(math.max(math.abs(vec.x),
                                     math.abs(vec.y)), MAPRADIUS)
     end
-    normvec = vec / vec2(normlen/MAPRADIUS,
-                         normlen/MAPRADIUS)
-    term.setCursorPos(round(MAPMARGIN+MAPRADIUS+normvec.x),
-                      round(MAPTOP+MAPRADIUS+normvec.y))
-    term.setTextColor(fgcolor)
-    term.write(char)
+    tmp = vec / vec2((normlen/MAPRADIUS),
+                     (normlen/MAPRADIUS))
+    return vec2(MAPMARGIN+MAPRADIUS+tmp.x, MAPTOP+MAPRADIUS+tmp.y)
+end
+
+lerpvec = function(startp, endp, t)
+    return startp + (vec2(t,t) * (endp-startp))
+end
+
+drawline = function(startp, endp, color)
+    diff = startp - endp
+    N = math.max(math.abs(diff.x), math.abs(diff.y));
+    term.setBackgroundColor(color)
     term.setTextColor("white")
+    for step = 0, N do
+        if N == 0 then
+            t = 0
+        else
+            t = step/N
+        end
+        point = lerpvec(startp, endp, t)
+        point = vec2(round(point.x), round(point.y))
+        term.setCursorPos(point.x, point.y)
+        term.write(" ")
+        --term.setCursorPos(1, step)
+        --term.write(point)
+    end
 end
 
 lpad = function(str, len, char)
@@ -29,22 +55,63 @@ round = function(n)
     return math.floor(n+0.5)
 end
 
+fround = function(n, digits)
+    mult = 10^digits
+    return math.floor((n*mult)+0.5)/mult
+end
+
 require("vector2")
 
 trailpos = nil
 semitrailpos = nil
 
-MAPRADIUS = 8
+MAPRADIUS = 7
 
-MAPMARGIN = 6
+MAPMARGIN = 7
 
 MAPTOP = 3
 
+CENTER = normvec(vec2(0,0))
+
+--CENTER.x.x.x.x = 0 --crash
+
 SENSITIVITY = 1.5
+
+BASE = vec2(1, 1)
 
 lastTime = os.clock()
 
+if waypoints[arg[1]] ~= nil then
+    target = waypoints[arg[1]]
+elseif arg[1] == "set" then
+    if arg[2] ~= nil then
+        if arg[5] ~= nil then
+            waypoints[arg[2]] = {arg[3], arg[4], arg[5]}
+            print("Set waypoint " .. arg[2] .. " to " .. arg[3] .. "," .. arg[4] .. "," .. arg[5])
+        else
+            x, y, z = gps.locate()
+            if x == nil then
+                print("Unknown location")
+            else
+                waypoints[arg[2]] = {math.floor(x),math.floor(y),math.floor(z)}
+                print("Set waypoint " .. arg[2] .. " to " .. math.floor(x) .. "," .. math.floor(y) .. "," .. math.floor(z))
+            end
+        end
+    else
+        print("Usage: ccgps set <name> OR ccgps set <name> <x> <y> <z>")
+    end
+    settings.set("waypoints", waypoints)
+    settings.save("waypoints.dat")
+    os.exit()
+elseif arg[3] ~= nil then
+    target = {arg[1], arg[2], arg[3]}
+end
+
+
+term.clear()
 while true do
+    term.setBackgroundColor("black")
+    term.setTextColor("white")
     x, y, z = gps.locate()
     if x == nil then
         term.setCursorPos(1,3)
@@ -68,18 +135,16 @@ while true do
             semitrailpos = posvec
         end
 
-        if arg[3] ~= nil then
+        if target ~= nil then
             -- Make box
-            term.setCursorPos(MAPMARGIN,MAPTOP)
-            term.write(string.rep("+", MAPRADIUS) .. "N" .. string.rep("+", MAPRADIUS))
-            term.setCursorPos(MAPMARGIN,MAPTOP+(MAPRADIUS*2))
-            term.write(string.rep("+", MAPRADIUS) .. "S" .. string.rep("+", MAPRADIUS))
-            for i = MAPTOP+1, MAPTOP+(MAPRADIUS*2)-1 do
+            term.setBackgroundColor("gray")
+            term.setTextColor("lightGray")
+            for i = MAPTOP, MAPTOP+(MAPRADIUS*2) do
                 term.setCursorPos(MAPMARGIN,i)
-                if i == MAPTOP+MAPRADIUS then
-                    term.write("W" .. string.rep("-", MAPRADIUS-1) .. "+" .. string.rep("-", MAPRADIUS-1) .. "E")
+                if i == MAPTOP or i == MAPTOP+(MAPRADIUS*2) then
+                    term.write(string.rep("#", MAPRADIUS*2+1))
                 else
-                    term.write("+" .. string.rep(" ", MAPRADIUS-1) .. "|" .. string.rep(" ", MAPRADIUS-1) .. "+")
+                    term.write("#" .. string.rep(" ", MAPRADIUS*2-1) .. "#")
                 end
             end
             -- Draw target
@@ -92,14 +157,22 @@ while true do
             term.setCursorPos(round(4+normvec.x),
                               round(9+normvec.y))
             term.write("@")]]
-            dx = arg[1] - x + 0.5
-            dz = arg[3] - z + 0.5
+            dx = target[1] - x + 0.5
+            dz = target[3] - z + 0.5
             dvec = vec2(dx, dz)
-            marker("=", vec2(0, arg[2]-y), "orange")
-            marker("@", dvec, "green")
             if trailpos ~= nil then
-                marker("^", semitrailpos - trailpos, "red", true)
+                movingvec = semitrailpos - trailpos
+                newvec = dvec:rotate(movingvec:angle_atan(BASE)+180)
+                point_at = normvec(newvec, true)
+                drawline(CENTER, normvec(newvec:normalize()*vec2(-0.5*MAPRADIUS,-0.5*MAPRADIUS)), "white")
+                drawline(CENTER, normvec(newvec, true), "red")
+                --drawline(CENTER, normvec(dvec), "red")
             end
+            term.setBackgroundColor("black")
+            term.setTextColor("white")
+            term.setCursorPos(MAPMARGIN, MAPTOP+(MAPRADIUS*2)+1)
+            term.clearLine()
+            term.write("Distance: " .. tostring(fround(dvec:length(), 2)).."m")
             --if trail[1]
             term.setBackgroundColor("black")
         end
