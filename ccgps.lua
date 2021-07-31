@@ -156,7 +156,7 @@ elseif arg[1] == "delete" then
             print("No such waypoint " .. arg[2])
         end
     else
-        print("Usage: ccgps set <name> OR ccgps set <name> <x> <y> <z>")
+        print("Usage: ccgps delete <name>")
     end
     settings.set("waypoints", waypoints)
     settings.save("waypoints.dat")
